@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# commit the example file
+!.env.example
+
+# supabase cli scratch
+/supabase/.temp/

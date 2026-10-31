@@ -1,37 +1,57 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Job Application Agent
 
-## Getting Started
+Track job applications, interviews, and offers in one place, with Supabase
+providing the database and authentication.
 
-First, run the development server:
+## Features
+
+- Email/password sign-up, sign-in, email confirmation, and password reset
+- "Continue with Google" sign-in (needs a Google OAuth client; see
+  [`docs/supabase.md`](docs/supabase.md))
+- Protected dashboard with per-user application tracking and row-level security
+- Next.js 16 App Router, React 19, Tailwind CSS v4, shadcn/ui
+
+## Getting started
 
 ```bash
+npm install
+cp .env.example .env.local   # then fill in the Supabase values
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). Create the first account at
+`/auth/sign-up`; the confirmation email must be clicked before signing in.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable                             | Description                              |
+| ------------------------------------ | ---------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`           | Supabase project URL                     |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable (anon) key        |
+| `NEXT_PUBLIC_SITE_URL`               | Public origin used for auth redirects    |
 
-## Learn More
+## Scripts
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run dev      # start the dev server (Turbopack)
+npm run build    # production build
+npm run start    # serve the production build
+npm run lint     # eslint
+npx tsc --noEmit # type-check
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Supabase
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The schema is in [`supabase/migrations/`](supabase/migrations), and the full
+setup guide — including the Google provider steps and redirect allowlist — is in
+[`docs/supabase.md`](docs/supabase.md).
 
-## Deploy on Vercel
+## Project structure
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# ai-job-agent
+```
+app/auth/       sign-in, sign-up, reset, callback, confirm, error routes
+app/dashboard/  protected applications page and server actions
+components/     ui primitives plus auth and dashboard components
+lib/supabase/   browser/server clients, proxy session helper, generated types
+proxy.ts        Next.js 16 proxy: session refresh and auth gating
+```
