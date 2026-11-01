@@ -34,7 +34,7 @@ export async function createApplication(
   const { data } = await supabase.auth.getClaims()
 
   if (!data?.claims?.sub) {
-    redirect("/auth/login?next=/dashboard")
+    redirect("/auth/login?next=/dashboard/application-status")
   }
 
   const companyName = String(formData.get("company_name") ?? "").trim()
@@ -57,7 +57,7 @@ export async function createApplication(
     return { error: error.message }
   }
 
-  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/application-status")
   return { success: true }
 }
 
@@ -72,10 +72,10 @@ export async function deleteApplication(formData: FormData) {
   const { data } = await supabase.auth.getClaims()
 
   if (!data?.claims?.sub) {
-    redirect("/auth/login?next=/dashboard")
+    redirect("/auth/login?next=/dashboard/application-status")
   }
 
   // RLS scopes the delete to the signed-in user.
   await supabase.from("job_applications").delete().eq("id", id)
-  revalidatePath("/dashboard")
+  revalidatePath("/dashboard/application-status")
 }

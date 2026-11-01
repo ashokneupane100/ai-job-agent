@@ -4,7 +4,10 @@ This app uses Supabase for Postgres, email/password auth, and (once configured)
 Google sign-in. Auth sessions are stored in cookies by `@supabase/ssr`, refreshed
 in `proxy.ts`, and every server-side check uses `getClaims()`.
 
-Production project ref: `edmilhwaqnmbfmimoebm` (region `eu-west-1`).
+Project ref in use: `uweasnrlduvnobzhhrcx` (matches `.env.local`). The ref in
+`NEXT_PUBLIC_SUPABASE_URL` is the source of truth — if you point the app at a
+different project, update the OAuth callback URL and redirect allowlist below
+to match.
 
 ## Environment
 
@@ -24,7 +27,14 @@ Never commit `.env.local`. Only `.env.example` is tracked.
 
 ## Database
 
-The schema lives in [`supabase/migrations/20261031000000_init.sql`](../supabase/migrations/20261031000000_init.sql).
+The schema lives in [`supabase/migrations/`](../supabase/migrations/), applied in
+filename order:
+
+| Migration                             | Purpose                                                    |
+| ------------------------------------- | ---------------------------------------------------------- |
+| `20261031000000_init.sql`             | Tables, RLS policies, grants, `updated_at` + new-user triggers |
+| `20261101000000_backfill_profiles.sql` | Profiles for users created before the trigger existed      |
+| `20261101000100_revoke_anon_grants.sql` | Removes the anon grants Supabase adds by default          |
 
 | Table                | Purpose                                                       |
 | -------------------- | ------------------------------------------------------------- |
@@ -35,24 +45,43 @@ The schema lives in [`supabase/migrations/20261031000000_init.sql`](../supabase/
 All three tables:
 
 - have row-level security enabled and owner-scoped policies (`auth.uid()`),
-- are explicitly granted to `authenticated` (tables created after 2026-10-30 are
-  not exposed to the Data API automatically),
-- are **not** granted to `anon`, so an anonymous request returns no rows.
+- are granted `select, insert, update, delete` to `authenticated` only,
+- are **not** granted to `anon`; an anonymous request returns `401`, and a
+  signed-in user only sees their own rows.
 
-Apply the migration to a fresh project one of these ways:
+> Supabase's default privileges grant `anon` and `authenticated` the full set of
+> table privileges on new tables in `public`, so a `grant ... to authenticated`
+> alone does **not** keep anon out. `20261101000100_revoke_anon_grants.sql` is
+> what enforces it — mirror that `revoke` when adding a table.
+
+Apply the migrations to a fresh project one of these ways:
 
 ```bash
 # Supabase CLI (installed globally)
 supabase link --project-ref <project-ref>
 supabase db push
 
-# or over psql with the pooler connection string
-psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/20261031000000_init.sql
+# or over psql with the pooler connection string, in filename order
+for f in supabase/migrations/*.sql; do
+  psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 --single-transaction -f "$f" || break
+done
 ```
 
-The direct database host is IPv6-only on this project; use the Supavisor pooler
-(`aws-0-eu-west-1.pooler.supabase.com:5432`) if your network has no IPv6.
+The direct database host is IPv6-only on Supabase projects; use the Supavisor
+pooler (Dashboard → **Connect**, session mode on port `5432`) if your network has
+no IPv6. Running the migration is not optional: until it is applied the
+`public` tables do not exist, `GET /rest/v1/profiles` returns `PGRST205`, and the
+`handle_new_user` trigger that creates a profile on sign-up is absent — so a new
+Google user appears in **Authentication → Users** but no `profiles` row is
+written.
+
+After the init migration, apply
+[`20261101000000_backfill_profiles.sql`](../supabase/migrations/20261101000000_backfill_profiles.sql)
+too: it creates profile rows for accounts that signed in before the trigger
+existed (the trigger only fires on future inserts). It is idempotent.
+
+If the tables exist but the Data API still reports `PGRST205`, reload the
+PostgREST schema cache with `notify pgrst, 'reload schema';`.
 
 Regenerate types after schema changes:
 
@@ -97,11 +126,13 @@ confirmation link will not reach `/auth/callback`.
 
 The "Continue with Google" button is already implemented
 (`components/auth/google-button.tsx` → `signInWithGoogle` in
-`app/auth/actions.ts`). Google is **not enabled** on the Supabase project yet
-(`external.google: false`), so clicking it currently returns an error message on
-the sign-in screen.
+`app/auth/actions.ts`). Google is **enabled** on the Supabase project
+(`external.google: true`), and a successful sign-in creates the user in
+**Authentication → Users** plus a `profiles` row via the `handle_new_user`
+trigger.
 
-To enable it:
+The setup below is what that provider configuration requires — use it when
+moving to a new project or recreating the OAuth client:
 
 1. **Create a Google OAuth client** in the
    [Google Cloud Console](https://console.cloud.google.com/apis/credentials):
@@ -109,7 +140,7 @@ To enable it:
    - Authorized JavaScript origin: `http://localhost:3000` (plus your production
      origin)
    - Authorized redirect URI:
-     `https://edmilhwaqnmbfmimoebm.supabase.co/auth/v1/callback`
+     `https://uweasnrlduvnobzhhrcx.supabase.co/auth/v1/callback`
    - Copy the client ID and client secret.
 2. **Enable the provider** in the Supabase Dashboard under
    **Authentication → Providers → Google**:
@@ -156,3 +187,16 @@ curl "https://<project-ref>.supabase.co/rest/v1/job_applications?select=*" \
 
 The response contains only that user's rows. An insert with another user's
 `user_id` fails with `new row violates row-level security policy` (`42501`).
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| ------- | ----- | --- |
+| Google/OAuth callback redirects to `/auth/error?message=Database error saving new user` (`error_code=unexpected_failure`) | The `on_auth_user_created` trigger raised. Almost always `public.profiles` is missing or was dropped while the trigger survived. | Re-run the migrations — `20261031000000_init.sql` is idempotent and recreates the table and the trigger. |
+| REST returns `PGRST205` ("Could not find the table … in the schema cache") | Migration not applied, or the PostgREST schema cache is stale. | Run the migrations, then `notify pgrst, 'reload schema';`. |
+| REST returns `401` with the publishable key | Expected: `anon` has no grants on these tables. | Sign in and send the user's access token. |
+| A profile row is missing for an existing user | The user signed up before the trigger existed. | Run `20261101000000_backfill_profiles.sql`. |
+
+Never drop the `public` tables while the `auth.users` trigger still exists: auth
+inserts fail and nobody can sign up. Re-running `20261031000000_init.sql` always
+repairs that state.

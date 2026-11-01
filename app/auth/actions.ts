@@ -199,7 +199,7 @@ export async function updatePassword(
     return { error: error.message }
   }
 
-  redirect("/dashboard?message=password-updated")
+  redirect("/dashboard/application-status?message=password-updated")
 }
 
 export async function signOut() {

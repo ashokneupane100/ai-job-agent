@@ -41,22 +41,26 @@ comment on table public.profiles is 'Candidate profile, one row per auth user.';
 
 alter table public.profiles enable row level security;
 
+drop policy if exists "Users can view their own profile" on public.profiles;
 create policy "Users can view their own profile"
   on public.profiles for select
   to authenticated
   using ((select auth.uid()) = id);
 
+drop policy if exists "Users can insert their own profile" on public.profiles;
 create policy "Users can insert their own profile"
   on public.profiles for insert
   to authenticated
   with check ((select auth.uid()) = id);
 
+drop policy if exists "Users can update their own profile" on public.profiles;
 create policy "Users can update their own profile"
   on public.profiles for update
   to authenticated
   using ((select auth.uid()) = id)
   with check ((select auth.uid()) = id);
 
+drop policy if exists "Users can delete their own profile" on public.profiles;
 create policy "Users can delete their own profile"
   on public.profiles for delete
   to authenticated
@@ -64,6 +68,7 @@ create policy "Users can delete their own profile"
 
 grant select, insert, update, delete on table public.profiles to authenticated;
 
+drop trigger if exists profiles_set_updated_at on public.profiles;
 create trigger profiles_set_updated_at
   before update on public.profiles
   for each row execute function public.set_updated_at();
@@ -87,6 +92,9 @@ $$;
 -- Trigger functions never need to be callable over the Data API.
 revoke all on function public.handle_new_user() from public, anon, authenticated;
 
+-- Re-running this migration must not fail on the trigger that already exists
+-- (a stale trigger pointing at a dropped table breaks every sign-up).
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
@@ -126,34 +134,38 @@ create table if not exists public.job_applications (
 
 comment on table public.job_applications is 'One row per job application tracked by a user.';
 
-create index job_applications_user_status_idx
+create index if not exists job_applications_user_status_idx
   on public.job_applications (user_id, status);
 
-create index job_applications_user_updated_idx
+create index if not exists job_applications_user_updated_idx
   on public.job_applications (user_id, updated_at desc);
 
-create index job_applications_user_next_action_idx
+create index if not exists job_applications_user_next_action_idx
   on public.job_applications (user_id, next_action_at)
   where next_action_at is not null;
 
 alter table public.job_applications enable row level security;
 
+drop policy if exists "Users can view their own applications" on public.job_applications;
 create policy "Users can view their own applications"
   on public.job_applications for select
   to authenticated
   using ((select auth.uid()) = user_id);
 
+drop policy if exists "Users can insert their own applications" on public.job_applications;
 create policy "Users can insert their own applications"
   on public.job_applications for insert
   to authenticated
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "Users can update their own applications" on public.job_applications;
 create policy "Users can update their own applications"
   on public.job_applications for update
   to authenticated
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "Users can delete their own applications" on public.job_applications;
 create policy "Users can delete their own applications"
   on public.job_applications for delete
   to authenticated
@@ -161,6 +173,7 @@ create policy "Users can delete their own applications"
 
 grant select, insert, update, delete on table public.job_applications to authenticated;
 
+drop trigger if exists job_applications_set_updated_at on public.job_applications;
 create trigger job_applications_set_updated_at
   before update on public.job_applications
   for each row execute function public.set_updated_at();
@@ -188,30 +201,34 @@ create table if not exists public.application_events (
 
 comment on table public.application_events is 'Timeline of notes, interviews, and status changes for an application.';
 
-create index application_events_user_occurred_idx
+create index if not exists application_events_user_occurred_idx
   on public.application_events (user_id, occurred_at desc);
 
-create index application_events_application_occurred_idx
+create index if not exists application_events_application_occurred_idx
   on public.application_events (application_id, occurred_at desc);
 
 alter table public.application_events enable row level security;
 
+drop policy if exists "Users can view their own application events" on public.application_events;
 create policy "Users can view their own application events"
   on public.application_events for select
   to authenticated
   using ((select auth.uid()) = user_id);
 
+drop policy if exists "Users can insert their own application events" on public.application_events;
 create policy "Users can insert their own application events"
   on public.application_events for insert
   to authenticated
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "Users can update their own application events" on public.application_events;
 create policy "Users can update their own application events"
   on public.application_events for update
   to authenticated
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "Users can delete their own application events" on public.application_events;
 create policy "Users can delete their own application events"
   on public.application_events for delete
   to authenticated

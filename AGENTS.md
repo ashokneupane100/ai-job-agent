@@ -85,12 +85,15 @@ Imports use the `@/*` alias mapped to the repo root (`@/lib/utils`,
   `/`, `/auth/*`, and static assets are public.
 - Schema lives in `supabase/migrations/` (`profiles`, `job_applications`,
   `application_events`). All tables use owner-scoped RLS and explicit grants to
-  `authenticated`; tables created after 2026-10-30 are not exposed to the Data
-  API automatically. Regenerate `lib/supabase/types.ts` after schema changes.
+  `authenticated`. Supabase's default privileges also grant `anon` full rights on
+  new `public` tables, so `20261101000100_revoke_anon_grants.sql` revokes them —
+  do the same for new tables, or anon can reach them. Regenerate
+  `lib/supabase/types.ts` after schema changes.
 - Server auth checks use `getClaims()`, never `getSession()`. Set
   `NEXT_PUBLIC_SITE_URL` so email/OAuth redirects resolve.
-- Google sign-in is implemented in the UI but the provider is disabled until a
-  Google OAuth client is added; see `docs/supabase.md`.
+- Google sign-in is implemented in the UI and the provider is enabled on the
+  project (`external.google: true`); see `docs/supabase.md` for the OAuth client
+  and redirect URL setup.
 - Load the `supabase` and `supabase-postgres-best-practices` skills before
   changing auth, schema, RLS, or queries.
 
