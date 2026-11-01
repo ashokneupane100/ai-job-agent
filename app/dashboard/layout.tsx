@@ -1,7 +1,9 @@
 import type { Metadata } from "next"
+import { Suspense } from "react"
 
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
+import { OnboardingGate } from "@/components/dashboard/onboarding-gate"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
 export const metadata: Metadata = {
@@ -23,6 +25,9 @@ export default function DashboardLayout({
         <DashboardHeader />
         <div className="flex flex-1 flex-col gap-6 p-4 md:p-6">{children}</div>
       </SidebarInset>
+      <Suspense fallback={null}>
+        <OnboardingGate />
+      </Suspense>
     </SidebarProvider>
   )
 }

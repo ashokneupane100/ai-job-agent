@@ -17,11 +17,19 @@ Copy `.env.example` to `.env.local` and fill in:
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
+GEMINI_API_KEY=your-google-ai-studio-key
+# optional, defaults to gemini-3.8-flash
+GEMINI_MODEL=
 ```
 
 `NEXT_PUBLIC_SITE_URL` is the public origin used to build auth redirects
 (`/auth/callback`). Set it to the deployed origin in production. If it is unset,
 `app/auth/actions.ts` falls back to the request host so preview deployments work.
+
+`GEMINI_API_KEY` comes from [Google AI Studio](https://aistudio.google.com/apikey).
+It is only read on the server (never exposed to the browser) and is required for
+resume parsing. Without it, uploads are stored and marked `failed` with a clear
+error, and the Resume page offers a retry.
 
 Never commit `.env.local`. Only `.env.example` is tracked.
 
@@ -35,14 +43,16 @@ filename order:
 | `20261031000000_init.sql`             | Tables, RLS policies, grants, `updated_at` + new-user triggers |
 | `20261101000000_backfill_profiles.sql` | Profiles for users created before the trigger existed      |
 | `20261101000100_revoke_anon_grants.sql` | Removes the anon grants Supabase adds by default          |
+| `20261102000000_resumes.sql`          | `resumes` table, profile JSONB sections, `resumes` bucket + storage policies |
 
 | Table                | Purpose                                                       |
 | -------------------- | ------------------------------------------------------------- |
 | `profiles`           | One row per auth user, created by the `handle_new_user` trigger |
 | `job_applications`   | One row per tracked job application                            |
 | `application_events` | Notes, interviews, and status changes for an application       |
+| `resumes`            | Uploaded PDFs, their parse status, and Gemini's structured output |
 
-All three tables:
+All four tables:
 
 - have row-level security enabled and owner-scoped policies (`auth.uid()`),
 - are granted `select, insert, update, delete` to `authenticated` only,
@@ -88,6 +98,33 @@ Regenerate types after schema changes:
 ```bash
 npx supabase gen types typescript --db-url "$SUPABASE_DB_URL" > lib/supabase/types.ts
 ```
+
+## Resume uploads and Gemini parsing
+
+The resume flow touches three places:
+
+1. **Storage** — the private `resumes` bucket (`10 MB`, `application/pdf` only).
+   Objects live at `<user_id>/<resume_id>-<file name>`, and the four
+   `storage.objects` policies from `20261102000000_resumes.sql` scope every
+   operation to the first path segment, which is the owner's `auth.uid()`.
+2. **`resumes` table** — one row per upload with `status`
+   (`uploaded` → `parsing` → `parsed` / `failed`), `parsed_data` (JSONB), and
+   `parse_error`. Owner-scoped RLS, same pattern as the other tables.
+3. **`profiles`** — parsed fields are written as a *partial* patch, so a sparse
+   resume never erases details the user already typed. The Profile form later
+   writes a full update.
+
+Parsing happens in `app/dashboard/resume/actions.ts`: the PDF bytes are sent to
+Gemini (`lib/ai/gemini.ts`) through the Interactions API
+(`ai.interactions.create`) with native PDF input, a JSON Schema in
+`response_format`, and `store: false` so resumes are not retained in Google's
+interaction history. The default model is `gemini-3.8-flash`; override it with
+`GEMINI_MODEL`. The result is normalized by `lib/resume/data.ts` before storage.
+If parsing fails, the uploaded row is kept as `failed` and the Resume page offers
+**Retry parse** instead of forcing a re-upload.
+
+Resumes are uploaded through a Server Action, so `next.config.ts` raises
+`experimental.serverActions.bodySizeLimit` to `12mb` (the default is 1 MB).
 
 ## Email/password auth
 
@@ -196,6 +233,9 @@ The response contains only that user's rows. An insert with another user's
 | REST returns `PGRST205` ("Could not find the table … in the schema cache") | Migration not applied, or the PostgREST schema cache is stale. | Run the migrations, then `notify pgrst, 'reload schema';`. |
 | REST returns `401` with the publishable key | Expected: `anon` has no grants on these tables. | Sign in and send the user's access token. |
 | A profile row is missing for an existing user | The user signed up before the trigger existed. | Run `20261101000000_backfill_profiles.sql`. |
+| Resume upload says `GEMINI_API_KEY is not configured` | The key is missing from `.env.local` or the server was not restarted. | Add `GEMINI_API_KEY`, restart `npm run dev`, then retry the parse on `/dashboard/resume`. |
+| Resume upload fails before reaching the action | The PDF is over the Server Action body limit. | `experimental.serverActions.bodySizeLimit` is `12mb` in `next.config.ts`; keep it above the bucket's 10 MB limit. |
+| Storage returns `new row violates row-level security policy` | The object path does not start with the user's id. | Upload to `${user.id}/…`; the storage policies key off the first folder segment. |
 
 Never drop the `public` tables while the `auth.users` trigger still exists: auth
 inserts fail and nobody can sign up. Re-running `20261031000000_init.sql` always

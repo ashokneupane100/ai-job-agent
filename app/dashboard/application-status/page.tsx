@@ -1,6 +1,7 @@
 import { formatDistanceToNow } from "date-fns"
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
+import { connection } from "next/server"
 
 import { deleteApplication } from "@/app/dashboard/actions"
 import { AddApplicationForm } from "@/components/dashboard/add-application-form"
@@ -42,6 +43,10 @@ export default async function ApplicationStatusPage({
 }: {
   searchParams: Promise<{ message?: string }>
 }) {
+  // Relative timestamps ("updated 2 hours ago") read the clock, so this page
+  // must render at request time instead of prerendering a static shell.
+  await connection()
+
   const supabase = await createClient()
   const { data: auth } = await supabase.auth.getClaims()
 
